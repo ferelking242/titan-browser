@@ -1,0 +1,73 @@
+name: Build Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner'
+        required: true
+        type: string
+        default: 'self-hosted'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-linux:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Update Vanadium submodule
+        run: |
+          cd vanadium
+          git fetch --tags
+          git checkout $(git tag | sort -V | tail -n1)
+          cd ..
+
+      - name: Set ENV
+        run: |
+          chmod +x *.sh
+          echo "unix_time=$(date +%s)" >> $GITHUB_ENV
+          export VERSION=$(grep -m1 -o '[0-9]\+\(\.[0-9]\+\)\{3\}' vanadium/args.gn)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build Linux x64
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: ./build-linux.sh
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp chromium/src/out/release/titan-browser-linux-x64 dist/
+          tar -czf titan-browser-${{ env.VERSION }}-linux-x64.tar.gz -C dist .
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "Titan Browser v${{ env.VERSION }} (Linux)"
+          tag_name: "v${{ env.VERSION }}-linux"
+          body: |
+            ## Titan Browser v${{ env.VERSION }} — Linux Desktop
+
+            ### Isolated Tab Groups
+            - Each isolated group runs in its own BrowserContext
+            - Full data isolation per group
+            - Right-click any link → "Open in isolated tab"
+            - New Isolated Tab option in the browser menu
+
+            ### System Requirements
+            - Linux x86_64
+            - Ubuntu 22.04+ / Debian 12+ / Fedora 38+
+          files: titan-browser-${{ env.VERSION }}-linux-x64.tar.gz
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: titan-browser-${{ env.VERSION }}-linux-x64.tar.gz

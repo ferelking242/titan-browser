@@ -1,0 +1,97 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner (must be macOS)'
+        required: true
+        type: string
+        default: 'self-hosted'
+      arch:
+        description: 'Architecture'
+        required: true
+        type: choice
+        options:
+          - arm64
+          - x64
+          - universal
+        default: 'arm64'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-mac:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Update Vanadium submodule
+        run: |
+          cd vanadium
+          git fetch --tags
+          git checkout $(git tag | sort -V | tail -n1)
+          cd ..
+
+      - name: Set ENV
+        run: |
+          VERSION=$(grep -m1 -o '[0-9]\+\(\.[0-9]\+\)\{3\}' vanadium/args.gn)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "unix_time=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Install deps
+        run: |
+          brew install git python3 imagemagick librsvg
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "$PWD/depot_tools" >> $GITHUB_PATH
+
+      - name: Fetch Chromium
+        run: |
+          VERSION=$(grep -m1 -o '[0-9]\+\(\.[0-9]\+\)\{3\}' vanadium/args.gn)
+          mkdir -p chromium/src
+          cd chromium/src
+          git init
+          git remote add origin https://chromium.googlesource.com/chromium/src.git
+          git fetch --depth 1 origin +refs/tags/$VERSION:chromium_$VERSION
+          git checkout $VERSION
+          cp $GITHUB_WORKSPACE/.gclient-mac ../
+
+      - name: Apply patches & build
+        run: |
+          cd chromium/src
+          SCRIPT_DIR=$GITHUB_WORKSPACE
+          cp $SCRIPT_DIR/vanadium/patches/*.patch /tmp/
+          sed -i '' 's/VANADIUM/TITAN/g; s/Vanadium/Titan/g; s/vanadium/titan/g' /tmp/*.patch
+          git am --whitespace=nowarn --keep-non-patch /tmp/*.patch || true
+          gclient sync -D --no-history --nohooks
+          gclient runhooks
+          source $SCRIPT_DIR/patch-desktop.sh
+          ARCH=${{ inputs.arch }}
+          cp $SCRIPT_DIR/args-mac.gn out/Default/args.gn
+          if [ "$ARCH" = "x64" ]; then
+            sed -i '' 's/target_cpu = "arm64"/target_cpu = "x64"/' out/Default/args.gn
+          fi
+          gn gen out/Default
+          autoninja -C out/Default "chrome/installer/mac"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp -r chromium/src/out/Default/Titan\ Browser.app dist/ 2>/dev/null || \
+          cp -r chromium/src/out/Default/Chromium.app dist/Titan\ Browser.app 2>/dev/null || true
+          hdiutil create -volname "Titan Browser" -srcfolder dist \
+            -ov -format UDZO \
+            titan-browser-${{ env.VERSION }}-mac-${{ inputs.arch }}.dmg
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "Titan Browser v${{ env.VERSION }} (macOS)"
+          tag_name: "v${{ env.VERSION }}-mac-${{ inputs.arch }}"
+          files: titan-browser-${{ env.VERSION }}-mac-${{ inputs.arch }}.dmg

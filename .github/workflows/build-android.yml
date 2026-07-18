@@ -1,0 +1,115 @@
+name: Build Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner'
+        required: true
+        type: string
+        default: 'self-hosted'
+      arch:
+        description: 'Architecture'
+        required: true
+        type: choice
+        options:
+          - arm64-only
+          - arm+arm64
+        default: 'arm64-only'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-android:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Update Vanadium submodule
+        run: |
+          cd vanadium
+          git fetch --tags
+          git checkout $(git tag | sort -V | tail -n1)
+          cd ..
+          git add vanadium
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          if ! git diff --staged --quiet; then
+            git commit -am "chore: update vanadium"
+            git push
+          fi
+
+      - name: Set ENV
+        run: |
+          chmod +x *.sh
+          echo "unix_time=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Build arm64 only (fast ~1h)
+        if: inputs.arch == 'arm64-only'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          LOCAL_TEST_JKS: ${{ secrets.LOCAL_TEST_JKS }}
+          STORE_TEST_JKS: ${{ secrets.STORE_TEST_JKS }}
+        run: ./build-android-fast.sh
+
+      - name: Build arm + arm64 (full ~2h)
+        if: inputs.arch == 'arm+arm64'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          LOCAL_TEST_JKS: ${{ secrets.LOCAL_TEST_JKS }}
+          STORE_TEST_JKS: ${{ secrets.STORE_TEST_JKS }}
+        run: ./build.sh
+
+      - name: Collect artifacts
+        run: |
+          export VERSION=$(find chromium/src/out/release -name '*.apk' | head -1 | sed 's/.*\///;s/-arm.*//')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          ls chromium/src/out/release/
+
+      - name: Rename artifacts
+        run: |
+          for f in chromium/src/out/release/*; do
+            base=$(basename "$f")
+            mv "$f" "${VERSION}-${{ env.unix_time }}-${base#*-*-}" 2>/dev/null || true
+          done
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "Titan Browser v${{ env.VERSION }}"
+          tag_name: "v${{ env.VERSION }}"
+          body: |
+            ## Titan Browser v${{ env.VERSION }}
+
+            Package: `com.aivos.titan`
+
+            ### What's new
+            - Isolated Tab Groups: each group has its own private BrowserContext
+            - New isolated tab option in all context menus
+            - Full data isolation: cookies, localStorage, IndexedDB, cache, service workers
+            - Based on Chromium ${{ env.VERSION }} + Vanadium security patches
+
+            ### Downloads
+            | File | Architecture |
+            |------|-------------|
+            | `*-arm64-v8a.apk` | 64-bit ARM (most modern devices) |
+            | `*-armeabi-v7a.apk` | 32-bit ARM (older devices) |
+            | `*-arm64-v8a.aab` | Android App Bundle (Play Store) |
+          files: |
+            *-arm64-v8a.apk
+            *-armeabi-v7a.apk
+            *-arm64-v8a.aab
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            *-arm64-v8a.apk
+            *-armeabi-v7a.apk
+            *-arm64-v8a.aab

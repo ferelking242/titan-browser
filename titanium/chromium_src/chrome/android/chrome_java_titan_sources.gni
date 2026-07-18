@@ -1,0 +1,22 @@
+# Copyright 2024-2026 Titan Browser
+# Use of this source code is governed by a GPL-2.0-only style license that
+# can be found in the LICENSE file.
+#
+# Lists all Titan-specific Java sources that extend the Chromium/Vanadium
+# Android Java build targets.
+#
+# This file is symlinked / referenced by the Vanadium GNI extension mechanism.
+# New Titan Java files must be added here AND to the Vanadium ext sources list
+# (see patch.sh for the sed commands that wire them in).
+
+# Full-path sources (absolute paths from src/)
+titan_java_full_path_sources = [
+]
+
+# Relative-path sources (relative to chrome/android/)
+titan_java_rel_path_sources = [
+  # Core isolation engine
+  "java/src/org/chromium/chrome/browser/IsolatedTabGroupManager.java",
+  # UI helpers wiring isolated tabs into all menus
+  "java/src/org/chromium/chrome/browser/IsolatedTabMenuHelper.java",
+]

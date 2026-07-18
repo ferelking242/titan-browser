@@ -1,0 +1,26 @@
+solutions = [
+  {
+    'name': 'src',
+    'url': 'https://chromium.googlesource.com/chromium/src.git',
+    'managed': False,
+    'custom_deps': {
+      'src/third_party/angle/third_party/VK-GL-CTS/src': None,
+    },
+    'custom_vars': {
+      'checkout_pgo_profiles': True,
+      'checkout_telemetry_dependencies': False,
+    },
+  },
+]
+hooks = [
+  {
+    'name': 'apply_subprojects_patches',
+    'action': ['python3',
+              '../vanadium/tools/common/apply_subprojects_patches.py',
+              '--base_patch_dir',
+              '../vanadium/subprojects_patches',
+              '--src_dir',
+              'src']
+  },
+]
+target_os = ['win']

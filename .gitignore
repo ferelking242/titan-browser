@@ -1,0 +1,6 @@
+keys/
+chromium/
+depot_tools/
+*.jks
+local.properties
+out/

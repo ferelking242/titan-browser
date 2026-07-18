@@ -1,0 +1,27 @@
+# Titan Browser — macOS desktop build configuration
+target_os = "mac"
+target_cpu = "arm64"
+is_component_build = false
+is_debug = false
+is_official_build = true
+symbol_level = 1
+disable_fieldtrial_testing_config = true
+ffmpeg_branding = "Chrome"
+proprietary_codecs = true
+enable_vr = false
+enable_remoting = false
+enable_reporting = false
+google_api_key = "x"
+google_default_client_id = "x"
+google_default_client_secret = "x"
+
+use_siso = true
+use_login_database_as_backend = true
+dcheck_always_on = false
+enable_iterator_debugging = false
+icu_use_data_file = true
+rtc_build_examples = false
+use_rtti = false
+enable_av1_decoder = true
+enable_dav1d_decoder = true
+v8_enable_drumbrake = true

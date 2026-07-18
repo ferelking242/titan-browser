@@ -1,0 +1,88 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner (must be Windows)'
+        required: true
+        type: string
+        default: 'self-hosted'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-windows:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Update Vanadium submodule
+        shell: bash
+        run: |
+          cd vanadium
+          git fetch --tags
+          git checkout $(git tag | sort -V | tail -n1)
+          cd ..
+
+      - name: Set ENV
+        shell: bash
+        run: |
+          export VERSION=$(grep -m1 -o '[0-9]\+\(\.[0-9]\+\)\{3\}' vanadium/args.gn)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "unix_time=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Install depot_tools
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "${{ github.workspace }}\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Fetch Chromium
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 -o '[0-9]\+\(\.[0-9]\+\)\{3\}' vanadium/args.gn)
+          mkdir -p chromium/src
+          cd chromium/src
+          git init
+          git remote add origin https://chromium.googlesource.com/chromium/src.git
+          git fetch --depth 1 origin +refs/tags/$VERSION:chromium_$VERSION
+          git checkout $VERSION
+          cp $GITHUB_WORKSPACE/.gclient-windows ../
+
+      - name: Apply patches & build
+        shell: bash
+        run: |
+          cd chromium/src
+          SCRIPT_DIR=$GITHUB_WORKSPACE
+          # Apply Vanadium patches (non-Android only)
+          cp $SCRIPT_DIR/vanadium/patches/*.patch /tmp/
+          sed -i 's/VANADIUM/TITAN/g; s/Vanadium/Titan/g; s/vanadium/titan/g' /tmp/*.patch
+          git am --whitespace=nowarn --keep-non-patch /tmp/*.patch || true
+          gclient sync -D --no-history --nohooks
+          gclient runhooks
+          source $SCRIPT_DIR/patch-desktop.sh
+          cp $SCRIPT_DIR/args-windows.gn out/Default/args.gn
+          gn gen out/Default
+          autoninja -C out/Default chrome
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp chromium/src/out/Default/chrome.exe dist/titan-browser.exe || true
+          cp chromium/src/out/Default/*.dll dist/ 2>/dev/null || true
+          7z a titan-browser-${{ env.VERSION }}-windows-x64.zip dist/
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "Titan Browser v${{ env.VERSION }} (Windows)"
+          tag_name: "v${{ env.VERSION }}-windows"
+          files: titan-browser-${{ env.VERSION }}-windows-x64.zip
