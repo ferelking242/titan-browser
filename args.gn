@@ -19,6 +19,9 @@ google_api_key = "x"
 google_default_client_id = "x"
 google_default_client_secret = "x"
 
+# ccache: must be installed before autoninja runs (hendrikmuhs/ccache-action does this)
+cc_wrapper = "ccache"
+
 use_siso = true
 use_login_database_as_backend = true
 build_contextual_search = false
