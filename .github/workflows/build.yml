@@ -7,7 +7,7 @@ on:
         description: 'Runner'
         required: true
         type: string
-        default: 'self-hosted' # ubuntu-latest
+        default: 'self-hosted'
       full:
         description: 'Full build (arm + arm64). Default: arm64 only.'
         required: false
@@ -49,16 +49,16 @@ jobs:
           echo "unix_time=$(date +%s)" >> $GITHUB_ENV
           echo "VERSION=$(grep -m1 -o '[0-9]\+\(\.[0-9]\+\)\{3\}' vanadium/args.gn)" >> $GITHUB_ENV
 
-      # ── ccache: persists compiled objects between runs ──────────────────────
-      # args.gn sets cc_wrapper="ccache" so autoninja actually uses it.
-      # Cold build (no cache): ~3h arm64 / ~6h arm+arm64.
-      # Warm build (cache hit): ~10-20 min for small deltas.
+      # ccache: persists compiled objects between runs.
+      # Cold build: ~6-10h. Warm build (cache hit): ~30-60 min.
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: chromium-android-${{ env.VERSION }}
-          restore-keys: chromium-android-
-          max-size: 15G
+          restore-keys: |
+            chromium-android-${{ env.VERSION }}
+            chromium-android-
+          max-size: 10G
           verbose: 2
 
       - name: Build
@@ -67,9 +67,11 @@ jobs:
           LOCAL_TEST_JKS: ${{ secrets.LOCAL_TEST_JKS }}
           STORE_TEST_JKS: ${{ secrets.STORE_TEST_JKS }}
         run: |
-          # Make ccache binary available — autoninja will call it via cc_wrapper in args.gn
           sudo apt-get install -y ccache
           export PATH="/usr/lib/ccache:$PATH"
+          if [ -n "$CCACHE_DIR" ]; then
+            echo "ccache dir: $CCACHE_DIR"
+          fi
           if [ "${{ inputs.full }}" = "true" ]; then
             ./build.sh
           else
@@ -80,11 +82,39 @@ jobs:
         if: always()
         run: ccache -s || true
 
-      # ── Full build artifacts (arm + arm64) ──────────────────────────────────
+      # ── arm64 only ────────────────────────────────────────────────────────────
+      - name: Set (arm64)
+        if: ${{ inputs.full != true }}
+        run: |
+          V=$(find chromium/src/out/release -name '*arm64-v8a.apk' | head -1 | sed 's/.*\///;s/-arm64-v8a.apk$//')
+          echo "VERSION=$V" >> $GITHUB_ENV
+          mv $(find chromium/src/out/release -name '*arm64-v8a.aab') $V-${{ env.unix_time }}-arm64-v8a.aab
+          mv $(find chromium/src/out/release -name '*arm64-v8a.apk') $V-${{ env.unix_time }}-arm64-v8a.apk
+
+      - name: Publish (arm64)
+        if: ${{ inputs.full != true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: v${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
+          files: |
+            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.aab
+            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.apk
+
+      - name: Attest (arm64)
+        if: ${{ inputs.full != true }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.aab
+            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.apk
+
+      # ── Full build (arm + arm64) ──────────────────────────────────────────────
       - name: Set (full)
         if: ${{ inputs.full == true }}
         run: |
-          V=$(find chromium/src/out/release -name '*arm64-v8a.apk' | sed 's/.*\///;s/\-arm64-v8a.apk$//')
+          V=$(find chromium/src/out/release -name '*arm64-v8a.apk' | sed 's/.*\///;s/-arm64-v8a.apk$//')
           echo "VERSION=$V" >> $GITHUB_ENV
           mv $(find chromium/src/out/release -name '*arm64-v8a.aab') $V-${{ env.unix_time }}-arm64-v8a.aab
           mv $(find chromium/src/out/release -name '*arm64-v8a.apk') $V-${{ env.unix_time }}-arm64-v8a.apk
@@ -110,31 +140,3 @@ jobs:
             ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.aab
             ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.apk
             ${{ env.VERSION }}-${{ env.unix_time }}-armeabi-v7a.apk
-
-      # ── Fast build artifacts (arm64 only) ───────────────────────────────────
-      - name: Set (fast / arm64)
-        if: ${{ inputs.full != true }}
-        run: |
-          V=$(find chromium/src/out/release -name '*arm64-v8a.apk' | sed 's/.*\///;s/\-arm64-v8a.apk$//')
-          echo "VERSION=$V" >> $GITHUB_ENV
-          mv $(find chromium/src/out/release -name '*arm64-v8a.aab') $V-${{ env.unix_time }}-arm64-v8a.aab
-          mv $(find chromium/src/out/release -name '*arm64-v8a.apk') $V-${{ env.unix_time }}-arm64-v8a.apk
-
-      - name: Publish (fast / arm64)
-        if: ${{ inputs.full != true }}
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          name: v${{ env.VERSION }}-arm64
-          tag_name: v${{ env.VERSION }}-${{ env.unix_time }}-arm64
-          files: |
-            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.aab
-            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.apk
-
-      - name: Attest (fast / arm64)
-        if: ${{ inputs.full != true }}
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: |
-            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.aab
-            ${{ env.VERSION }}-${{ env.unix_time }}-arm64-v8a.apk
