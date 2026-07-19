@@ -5,7 +5,10 @@ cp $SCRIPT_DIR/res/drawable/themed_app_icon.xml chrome/android/java/res_titan_ba
 for icon in $(find chrome/android/java/res_titan_base -type f -name '*.png'); do convert $icon -fill navy -tint 36 $icon && $SCRIPT_DIR/res/icon.sh $icon; done
 sed -i 's|<application |<application android:extractNativeLibs="false" |' chrome/android/java/AndroidManifest.xml
 
-sed -i 's|private static void init(Context ctx, SpecType specType) {|private static void init(Context ctx, SpecType specType) { if (!isEligible()) { return; }|' titan/android_config/parser/java/src/app/titan/config/TitaniumConfParser.java
+sed -i 's|private static void init(Context ctx, SpecType specType) {|private static void init(Context ctx, SpecType specType) { if (!isEligible()) { return; }|' \
+  titan/android_config/parser/java/src/app/titan/config/TitanConfParser.java 2>/dev/null || \
+  sed -i 's|private static void init(Context ctx, SpecType specType) {|private static void init(Context ctx, SpecType specType) { if (!isEligible()) { return; }|' \
+  titan/android_config/parser/java/src/app/titan/config/TitaniumConfParser.java 2>/dev/null || true
 sed -i 's|if (!_omit_dex) {|if (_is_base_module \&\& !_omit_dex) {|' build/config/android/rules.gni
 sed -i '/safelyRemovePreference(prefFragment/d' titan/chromium_src/chrome/browser/language/android/java/src/org/chromium/chrome/browser/language/settings/LanguageSettingsExt.java
 sed -i '/removeEntryForKey(fragmentName, "translate_switch")/d' chrome/android/java/src/org/chromium/chrome/browser/settings/search/SettingsSearchCoordinator.java
@@ -173,7 +176,7 @@ fi
 
 # 4. Hook isolated tab into the main app menu (+ button)
 # TabbedAppMenuPropertiesDelegate.java: add "New isolated tab" after incognito tab item
-sed -i 's|modelList.add(buildNewIncognitoTabItem());|&\n        modelList.add(IsolatedTabMenuHelper.buildNewIsolatedTabItem(mActivity, mTabModelSelector));|' \
+sed -i 's|modelList.add(buildNewIncognitoTabItem());|&\n        { var _isoItem = IsolatedTabMenuHelper.buildNewIsolatedTabItem(mActivity, mTabModelSelector); if (_isoItem != null) modelList.add(_isoItem); }|' \
   chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedAppMenuPropertiesDelegate.java
 
 # 5. Add import of IsolatedTabMenuHelper to TabbedAppMenuPropertiesDelegate
